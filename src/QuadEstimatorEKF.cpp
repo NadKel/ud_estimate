@@ -92,10 +92,22 @@ void QuadEstimatorEKF::UpdateFromIMU(V3F accel, V3F gyro)
   // SMALL ANGLE GYRO INTEGRATION:
   // (replace the code below)
   // make sure you comment it out when you add your own code -- otherwise e.g. you might integrate yaw twice
+    /*
+   float predictedPitch = pitchEst + dtIMU * gyro.y;
+   float predictedRoll = rollEst + dtIMU * gyro.x;
+   ekfState(6) = ekfState(6) + dtIMU * gyro.z;	// yaw
+    */
 
-  float predictedPitch = pitchEst + dtIMU * gyro.y;
-  float predictedRoll = rollEst + dtIMU * gyro.x;
-  ekfState(6) = ekfState(6) + dtIMU * gyro.z;	// yaw
+    Quaternion<float> qt = Quaternion<float>::FromEuler123_RPY(rollEst, pitchEst, ekfState(6));
+    Quaternion<float> qt_bar = qt.IntegrateBodyRate(gyro, dtIMU);
+
+
+
+    float predictedPitch = qt_bar.Pitch();
+    float predictedRoll = qt_bar.Roll();
+    ekfState(6) = qt_bar.Yaw();
+    
+
 
   // normalize yaw to -pi .. pi
   if (ekfState(6) > F_PI) ekfState(6) -= 2.f*F_PI;
@@ -162,6 +174,15 @@ VectorXf QuadEstimatorEKF::PredictState(VectorXf curState, float dt, V3F accel, 
 
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
 
+  V3F Inertial_frame_acc = attitude.Rotate_BtoI(accel) - V3F(0.0, 0.0, CONST_GRAVITY);
+
+  predictedState(0) = curState(0) + curState(3) * dt; // X-pos
+  predictedState(1) = curState(1) + curState(4) * dt; // Y-pos
+  predictedState(2) = curState(2) + curState(5) * dt; // Z-pos
+  predictedState(3) = curState(3) + Inertial_frame_acc.x * dt; // X-pos
+  predictedState(4) = curState(4) + Inertial_frame_acc.y * dt; // Y-pos
+  predictedState(5) = curState(5) + Inertial_frame_acc.z * dt; // Z-pos
+
 
   /////////////////////////////// END STUDENT CODE ////////////////////////////
 
@@ -188,7 +209,26 @@ MatrixXf QuadEstimatorEKF::GetRbgPrime(float roll, float pitch, float yaw)
   //   that your calculations are reasonable
 
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
+  float theta = pitch;
+  float phi = roll;
+  float psi = yaw;
+  float R11, R12, R13, R21, R22, R23;
 
+  R11 = -cos(theta) * sin(psi);
+  R21 = cos(theta) * cos(psi);
+
+  R12 = -sin(phi) * sin(theta) * sin(psi) - cos(phi) * cos(psi);
+  R22 = sin(phi) * sin(theta) * cos(psi) - cos(phi) * sin(psi);
+
+  R13 = -cos(phi) * sin(theta) * sin(psi) + sin(phi) * cos(psi);
+  R23 = cos(phi) * sin(theta) * cos(psi) + sin(phi) * sin(psi);
+
+  RbgPrime(0, 0) = R11;
+  RbgPrime(0, 1) = R12;
+  RbgPrime(0, 2) = R13;
+  RbgPrime(1, 0) = R21;
+  RbgPrime(1, 1) = R22;
+  RbgPrime(1, 2) = R23;
 
   /////////////////////////////// END STUDENT CODE ////////////////////////////
 
@@ -234,9 +274,19 @@ void QuadEstimatorEKF::Predict(float dt, V3F accel, V3F gyro)
   gPrime.setIdentity();
 
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
+ 
+  // g' update:
+  gPrime(0, 3) = dt;
+  gPrime(1, 4) = dt;
+  gPrime(2, 5) = dt;
 
+  gPrime(3, 6) = (RbgPrime(0, 0) * accel.x + RbgPrime(0, 1) * accel.y + RbgPrime(0, 2) * accel.z) * dt;
+  gPrime(4, 6) = (RbgPrime(1, 0) * accel.x + RbgPrime(1, 1) * accel.y + RbgPrime(1, 2) * accel.z) * dt;
+  
+  // sigma bar update
+  ekfCov = gPrime * ekfCov * gPrime.transpose() + Q;
 
-  /////////////////////////////// END STUDENT CODE ////////////////////////////
+ /////////////////////////////// END STUDENT CODE ////////////////////////////
 
   ekfState = newState;
 }
@@ -260,6 +310,11 @@ void QuadEstimatorEKF::UpdateFromGPS(V3F pos, V3F vel)
   //  - this is a very simple update
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
 
+  for (int i = 0; i < 6; i++) {
+      hPrime(i, i) = 1;
+      zFromX(i) = ekfState(i);
+  }
+
   /////////////////////////////// END STUDENT CODE ////////////////////////////
 
   Update(z, hPrime, R_GPS, zFromX);
@@ -280,7 +335,13 @@ void QuadEstimatorEKF::UpdateFromMag(float magYaw)
   //    (you don't want to update your yaw the long way around the circle)
   //  - The magnetomer measurement covariance is available in member variable R_Mag
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
+  hPrime(QUAD_EKF_NUM_STATES - 1) = 1;
+  zFromX(0) = ekfState(6);
 
+  if ((z(0) - zFromX(0)) > F_PI) zFromX(0) += 2.f * F_PI;
+  if ((z(0) - zFromX(0)) < -F_PI) zFromX(0) -= 2.f * F_PI;
+
+ 
 
   /////////////////////////////// END STUDENT CODE ////////////////////////////
 
