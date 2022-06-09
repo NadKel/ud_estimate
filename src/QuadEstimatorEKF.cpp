@@ -337,11 +337,13 @@ void QuadEstimatorEKF::UpdateFromMag(float magYaw)
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
   hPrime(QUAD_EKF_NUM_STATES - 1) = 1;
   zFromX(0) = ekfState(6);
-
-  if ((z(0) - zFromX(0)) > F_PI) zFromX(0) += 2.f * F_PI;
-  if ((z(0) - zFromX(0)) < -F_PI) zFromX(0) -= 2.f * F_PI;
-
- 
+  
+  if ((z(0) - zFromX(0)) > F_PI) {
+      zFromX(0) += 2.f * F_PI;
+  }
+  else if ((z(0) - zFromX(0)) < -F_PI) {
+      zFromX(0) -= 2.f * F_PI;
+  }
 
   /////////////////////////////// END STUDENT CODE ////////////////////////////
 
